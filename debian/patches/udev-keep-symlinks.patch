@@ -1,0 +1,50 @@
+Description: Keep symlinks when udev changes /dev/bcacheN
+Author: Balint Reczey <balint.reczey@canonical.com>
+Origin: vendor
+Bug-Ubuntu: https://launchpad.net/bugs/1861941
+Last-Update: 2020-05-19
+
+--- a/69-bcache.rules
++++ b/69-bcache.rules
+@@ -30,3 +30,9 @@
+ 
+ LABEL="bcache_end"
+ 
++# keep symlinks when the block device is changed by a different driver
++DRIVER!="bcache", ENV{DEVNAME}=="/dev/bcache[0-9]*" ACTION=="change", ENV{DEVLINKS}=="?*",IMPORT{program}="bcache-keep-symlinks $env{DEVNAME}"
++ENV{BCACHE_CACHED_UUID}=="?*", \
++        SYMLINK+="bcache/by-uuid/$env{BCACHE_CACHED_UUID}"
++ENV{BCACHE_CACHED_LABEL}=="?*", \
++        SYMLINK+="bcache/by-label/$env{BCACHE_CACHED_LABEL}"
+--- a/Makefile
++++ b/Makefile
+@@ -9,7 +9,7 @@
+ 
+ install: make-bcache probe-bcache bcache-super-show
+ 	$(INSTALL) -m0755 make-bcache bcache-super-show	$(DESTDIR)${PREFIX}/sbin/
+-	$(INSTALL) -m0755 probe-bcache bcache-register		$(DESTDIR)$(UDEVLIBDIR)/
++	$(INSTALL) -m0755 probe-bcache bcache-register bcache-keep-symlinks	$(DESTDIR)$(UDEVLIBDIR)/
+ 	$(INSTALL) -m0644 69-bcache.rules	$(DESTDIR)$(UDEVLIBDIR)/rules.d/
+ 	$(INSTALL) -m0644 -- *.8 $(DESTDIR)${PREFIX}/share/man/man8/
+ 	$(INSTALL) -D -m0755 initramfs/hook	$(DESTDIR)/usr/share/initramfs-tools/hooks/bcache
+--- /dev/null
++++ b/bcache-keep-symlinks
+@@ -0,0 +1,18 @@
++#!/bin/sh
++
++DEVNAME=$1
++
++for link in /dev/bcache/by-uuid/*; do
++	if [ -n "$DEVNAME" -a "$DEVNAME" = "$(readlink -f $link)" ]; then
++		echo "BCACHE_CACHED_UUID=$(basename $link)"
++		break
++	fi
++done
++
++for link in /dev/bcache/by-label/*; do
++	if [ -n "$DEVNAME" -a "$DEVNAME" = "$(readlink -f $link)" ]; then
++		echo "BCACHE_CACHED_LABEL=$(basename $link)"
++		break
++	fi
++done
++
